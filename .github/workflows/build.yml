@@ -24,10 +24,34 @@ jobs:
           echo "PROJECT_DIR=$(dirname "$GR")" >> "$GITHUB_ENV"
 
       - name: Build
+        shell: bash
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           chmod +x gradlew
-          ./gradlew jar --no-daemon --stacktrace --dependency-verification=off
+          ./gradlew jar --no-daemon --stacktrace --dependency-verification=off 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+
+      - name: Collect debug info
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p debug
+          cp build.log debug/ || true
+          grep -E "error:|warning: \[" build.log | grep "error:" > debug/errors-only.txt || true
+          find ~/.gradle/caches/fabric-loom -type f -name '*.jar' 2>/dev/null | grep -i minecraft | grep -vi -e sources -e natives > jars.txt || true
+          cat jars.txt
+          for j in $(xargs -a jars.txt ls -S 2>/dev/null | head -4); do
+            echo "=== $j" >> debug/api-dump.txt
+            unzip -Z1 "$j" | grep -E '^(net/minecraft|com/mojang)/.*\.class$' | grep -v package-info | sed 's/\.class$//; s#/#.#g' > classes.txt
+            xargs -a classes.txt -n 400 javap -p -cp "$j" >> debug/api-dump.txt 2>/dev/null || true
+          done
+          ls -la debug
+
+      - name: Upload debug info
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-info
+          path: debug
 
       - name: Upload jar
         if: success()
