@@ -1,0 +1,37 @@
+name: Build mod from zip
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Unzip the uploaded source
+        run: |
+          mkdir -p src_unpacked
+          for z in *.zip; do unzip -q -o "$z" -d src_unpacked; done
+          GR=$(find src_unpacked -name gradlew -not -path '*/node_modules/*' | head -1)
+          if [ -z "$GR" ]; then echo "gradlew nahi mila, zip sahi hai?"; exit 1; fi
+          echo "PROJECT_DIR=$(dirname "$GR")" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          chmod +x gradlew
+          ./gradlew jar --no-daemon --stacktrace --dependency-verification=off
+
+      - name: Upload jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jar
+          path: ${{ env.PROJECT_DIR }}/build/libs/*.jar
